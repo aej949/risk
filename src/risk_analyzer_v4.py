@@ -28,7 +28,7 @@ def sync_market_data(db_path):
                 gsr_df[['Date', 'Ratio']].dropna().to_sql('gold_silver_ratio', conn, if_exists='append', index=False)
     conn.close()
 
-def load_data(db_path='gspjt/data/commodity_analysis.db'):
+def load_data(db_path='data/commodity_analysis.db'):
     sync_market_data(db_path)
     conn = sqlite3.connect(db_path)
     df_w = pd.read_sql("SELECT * FROM wide_prices", conn)

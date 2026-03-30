@@ -42,8 +42,8 @@ st.markdown("""<div class='report-header'><div style='display: flex; justify-con
 <div style='text-align: right;'><div style='font-size: 1.1rem; font-weight: 700;'>Multi-Crisis Back/Forward Analysis</div><div style='font-size: 0.9rem; opacity: 0.8;'>Prime V7 - Fixed Logic Execution</div></div>
 </div></div>""", unsafe_allow_html=True)
 
-# 데 로드
-DB_PATH = os.path.abspath(os.path.join(BASE_DIR, '../../gspjt/data/commodity_analysis.db'))
+# 데이터 로드
+DB_PATH = os.path.abspath(os.path.join(os.path.dirname(BASE_DIR), 'data/commodity_analysis.db'))
 try:
     df_raw, df_gsr = load_data(DB_PATH)
     cohort_results, cohort_info = get_cohort_data(df_raw)
