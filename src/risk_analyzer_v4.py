@@ -168,38 +168,56 @@ def get_cohort_data(df_raw, buffer_days=60, window_days=150):
 
 def calculate_homology(cohort_results, target_name='US-Iran', asset='Gold'):
     """
-    4. Homology (상동성) 계산 길이 동기화
-    두 시리즈 중 짧은 쪽에 맞춰 슬라이싱 후 상관계수 corr() 계산
+    4. Homology (상동성) 무결성 연산 패치 (8차 긴급):
+    결측치 제거, 분산 0 검증, 최소 길이 확보 로직을 통해 연산 불능(NaN -> 0.00)을 방지함.
     """
     if target_name not in cohort_results:
         return {}
         
+    # 타겟 위기 데이터 추출 및 결측치 원천 제거
     target_df = cohort_results[target_name]
-    # T=0 이후 데이터만 추출
-    target_p = target_df[target_df['T_Days'] >= 0][asset]
+    target_p = target_df[target_df['T_Days'] >= 0][asset].dropna()
     
     sims = {}
     for name, df in cohort_results.items():
+        # 자기 자신 제외
         if name == target_name:
             continue
             
-        past_p = df[df['T_Days'] >= 0][asset]
+        # 비교 대상 과거 위기 데이터 추출 및 결측치 제거
+        past_p = df[df['T_Days'] >= 0][asset].dropna()
         
-        # 4-1. 데이터 길이 동기화 (짧은 쪽에 맞춤)
+        # 4-1. 데이터 길이 동기화
         min_len = min(len(target_p), len(past_p))
         
-        if min_len > 5: # 최소 통계적 유의미성 확보
-            s1 = target_p.iloc[:min_len]
-            s2 = past_p.iloc[:min_len]
+        # 무결성 검증 1: 최소 연산 길이 확보 (n >= 3)
+        if min_len < 3:
+            continue
             
-            # 상관계수 계산
-            if s1.std() != 0 and s2.std() != 0:
-                corr = s1.corr(s2)
-                sims[name] = corr if not np.isnan(corr) else 0.0
-            else:
-                sims[name] = 0.0
-        else:
-            sims[name] = 0.0
+        # 순수 Numpy 배열로 변환 (.values 사용)
+        v1 = target_p.iloc[:min_len].values
+        v2 = past_p.iloc[:min_len].values
+        
+        # 무결성 검증 2: 표준편차(std) 0 여부 확인 (Zero Division 방지)
+        if np.std(v1) <= 1e-9 or np.std(v2) <= 1e-9:
+            continue
+            
+        try:
+            # 무결성 검증 3: 배열 내 NaN 체크
+            if np.isnan(v1).any() or np.isnan(v2).any():
+                continue
+                
+            # 상관계수 연산
+            corr_matrix = np.corrcoef(v1, v2)
+            corr = corr_matrix[0, 1]
+            
+            # 유효한 수치인 경우에만 결과 저장
+            if not np.isnan(corr):
+                sims[name] = float(corr)
+            
+        except Exception:
+            # 오류 발생 시 해당 항목 건너뜀 (0.00 강제 주입 금지)
+            continue
             
     return sims
 
@@ -216,21 +234,17 @@ def get_optimized_crisis_weights(cohort_results):
         if name not in cohort_results:
             continue
         df = cohort_results[name]
-        # T=0 ~ T+60 구간 추출 (수익률 변동성 분석)
+        # T=0 ~ T+60 구간 추출
         df_t60 = df[(df['T_Days'] >= 0) & (df['T_Days'] <= 60)][assets]
         if not df_t60.empty:
-            # 일일 수익률(diff)의 표준편차 계산
             vols = df_t60.diff().std()
             vols_list.append(vols)
             
     if not vols_list:
-        # 데이터가 없을 경우 균등 배분 (전체 합 1.0 보장)
         return dict(zip(assets, [0.25, 0.25, 0.25, 0.25]))
         
-    # 평균 변동성 계산 및 역수 가중치 산정
     avg_vols = pd.concat(vols_list, axis=1).mean(axis=1)
     inv_vols = 1 / (avg_vols + 1e-9)
-    # 비중 합이 정확히 1.0이 되도록 정규화
     weights = inv_vols / inv_vols.sum()
     
     return weights.to_dict()
@@ -238,53 +252,39 @@ def get_optimized_crisis_weights(cohort_results):
 def get_forward_test_result(target_df, weights):
     """
     미-이란 전쟁(T=0)부터 오늘까지의 실제 포트폴리오 누적 수익률 계산
-    target_df는 이미 (Price/Base - 1) * 100 형식으로 정규화됨
     """
     assets = ['Gold', 'Silver', 'Dollar Index', 'S&P 500']
-    # T=0 이후 구간 추출
     df_t = target_df[target_df['T_Days'] >= 0][assets].copy()
     
     if df_t.empty:
         return 0.0, 0.0
         
-    # 포트폴리오 가치 변화 계산
-    # df_t[asset] / 100 + 1 은 (현재가 / T0가) 를 의미함
     port_cumulative = sum((df_t[asset] / 100 + 1) * weights.get(asset, 0) for asset in assets)
-    
-    # 최종 누적 수익률 (%)
     final_cum_ret = (port_cumulative.iloc[-1] - 1) * 100
-    
-    # 벤치마크 (S&P 500 100%)
     bench_cum_ret = ((df_t['S&P 500'].iloc[-1] / 100 + 1) - 1) * 100
     
     return float(final_cum_ret), float(bench_cum_ret)
 
 def calculate_risk_score(df_raw):
     """
-    최근 시장 상황(S&P 500 MDD 및 USD 변동성) 기반 종합 리스크 점수 산출
+    최근 시장 상황 기반 종합 리스크 점수 산출
     """
     pivot = df_raw.pivot(index='Date', columns='Ticker', values='Close').ffill()
     if 'S&P 500' not in pivot.columns or 'Dollar Index' not in pivot.columns:
         return {'total': 50, 'mdd_part': 50, 'vol_part': 50, 'mdd_val': 0, 'vol_val': 0}
         
-    # 최근 30거래일 기준 MDD
     sp500 = pivot['S&P 500'].tail(30)
     sp500_mdd = ((sp500 / sp500.cummax() - 1).min()) * 100
     mdd_score = min(100, abs(sp500_mdd) * 10)
     
-    # 최근 30거래일 기준 USD 변동성 (연환산)
     usd_vol = pivot['Dollar Index'].tail(30).pct_change().std() * np.sqrt(252) * 100
     vol_score = min(100, usd_vol * 10)
     
-    # 7:3 가중치 적용
     final_score = (mdd_score * 0.7) + (vol_score * 0.3)
-    
     return {
         'total': min(100, max(0, final_score)),
-        'mdd_part': mdd_score,
-        'vol_part': vol_score,
-        'mdd_val': sp500_mdd,
-        'vol_val': usd_vol
+        'mdd_part': mdd_score, 'vol_part': vol_score,
+        'mdd_val': sp500_mdd, 'vol_val': usd_vol
     }
 
 def analyze_strategy_v4(df_cohort, risk_score, benchmark_asset='S&P 500'):
@@ -292,13 +292,9 @@ def analyze_strategy_v4(df_cohort, risk_score, benchmark_asset='S&P 500'):
     리스크 점수에 따른 동적 자산배분 모델 성과 분석
     """
     assets = ['Gold', 'Silver', 'Dollar Index', 'S&P 500']
-    
-    # 일일 수익률 기반 계산 (정규화된 %가 아닌 원래 비율로 변환)
-    # df_cohort 는 (P/P0 - 1)*100 이므로, 이를 P/P0 로 변환 후 증률 계산
     pivot_prices = (df_cohort[assets] / 100 + 1)
     pivot_rets = pivot_prices.pct_change().fillna(0)
     
-    # 리스크 점수 기반 모델 결정
     if risk_score >= 70:
         m_name, w = "철저 방어형", [0.60, 0.00, 0.30, 0.10]
     elif risk_score >= 40:
@@ -306,11 +302,9 @@ def analyze_strategy_v4(df_cohort, risk_score, benchmark_asset='S&P 500'):
     else:
         m_name, w = "적극 수익형", [0.10, 0.30, 0.00, 0.60]
         
-    # 전략 수익률 합성
     p_ret = sum(pivot_rets[asset] * weight for asset, weight in zip(assets, w))
     bench_ret = pivot_rets[benchmark_asset]
     
-    # 누적 수익률 및 MDD (단리/복리 혼합 방지 위해 복리 적용)
     strategy_cum = (1 + p_ret).cumprod() - 1
     bench_cum = (1 + bench_ret).cumprod() - 1
     
@@ -318,12 +312,9 @@ def analyze_strategy_v4(df_cohort, risk_score, benchmark_asset='S&P 500'):
     bench_mdd = (bench_cum + 1) / (bench_cum + 1).cummax() - 1
     
     return {
-        'model_name': m_name,
-        'weights': dict(zip(assets, w)),
-        'strategy_cum': strategy_cum,
-        'bench_cum': bench_cum,
-        'strategy_mdd': strategy_mdd.min(),
-        'bench_mdd': bench_mdd.min()
+        'model_name': m_name, 'weights': dict(zip(assets, w)),
+        'strategy_cum': strategy_cum, 'bench_cum': bench_cum,
+        'strategy_mdd': strategy_mdd.min(), 'bench_mdd': bench_mdd.min()
     }
 
 def get_gsr_metrics(df_gsr):
