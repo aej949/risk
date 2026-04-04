@@ -122,6 +122,21 @@ with col_b2:
     w_html += "</table>"
     st.markdown(w_html, unsafe_allow_html=True)
 
+# --- [Section 4] Asset Allocation Radar ---
+st.markdown("<div class='section-title'>🎯 [Section 4] Asset Allocation Radar: 종합 권고 제언</div>", unsafe_allow_html=True)
+col_c1, col_c2 = st.columns([1, 2])
+with col_c1:
+    fig_pie = px.pie(values=list(current_sim['weights'].values()), names=list(current_sim['weights'].keys()), color_discrete_sequence=px.colors.qualitative.Bold, hole=0.4)
+    st.plotly_chart(fig_pie, use_container_width=True)
+with col_c2:
+    st.markdown(f"""
+<div class='insight-box'>
+    <h4>🛡️ 자산 보강 액션 플랜</h4>
+    🔸 <b>현행 모델</b>: {current_sim['model_name']} (위험도 {risk_score:.1f}점 기반)<br><br>
+    🔸 <b>핵심 근거</b>: 리스크 산출 공식에 따른 주식 비중 조절 및 안전자산 방어막 형성
+</div>
+""", unsafe_allow_html=True)
+
 # --- [Section 5] 실전 검증: 과거 위기 학습 모델 적용 결과 (NEW Section) ---
 st.markdown("<div class='section-title'>🔥 [Section 5] 실전 검증: 과거 위기 학습 모델 적용 결과</div>", unsafe_allow_html=True)
 
@@ -156,17 +171,5 @@ with col_d2:
     *검증 기준: 미-이란 전쟁 발생일(T=0)에 기계적으로 위 비중을 투입 후 누적 수익률 추적.
     </div>
     """, unsafe_allow_html=True)
-
-# --- [Section 4] Asset Allocation Radar ---
-st.markdown("<div class='section-title'>🎯 [Section 4] Asset Allocation Radar: 종합 권고 제언</div>", unsafe_allow_html=True)
-col_c1, col_c2 = st.columns([1, 2])
-with col_c1:
-    fig_pie = px.pie(values=list(current_sim['weights'].values()), names=list(current_sim['weights'].keys()), color_discrete_sequence=px.colors.qualitative.Bold, hole=0.4)
-    st.plotly_chart(fig_pie, use_container_width=True)
-with col_c2:
-    st.markdown("<div class='insight-box'>#### 🛡️ 자산 보강 액션 플랜")
-    st.write(f"🔸 **현행 모델**: {current_sim['model_name']} (위험도 {risk_score:.1f}점 기반)")
-    st.write(f"🔸 **핵심 근거**: 리스크 산출 공식에 따른 주식 비중 조절 및 안전자산 방어막 형성")
-    st.markdown("</div>", unsafe_allow_html=True)
 
 st.markdown("<div style='font-size: 0.8rem; color: #666; margin-top: 3rem; text-align: center; border-top: 1px solid #ddd; padding-top: 10px;'>본 자산배분 시스템은 개인 연구 목적으로 제작되었으며 어떠한 투자 결과도 보장하지 않습니다. [Prime V7]</div>", unsafe_allow_html=True)
