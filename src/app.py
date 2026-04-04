@@ -60,13 +60,22 @@ risk_data = calculate_risk_score(df_raw)
 risk_score = risk_data['total']
 gsr_metrics = get_gsr_metrics(df_gsr)
 
+# [Global logic] 상단 메트릭용 상동성 사전 계산 (기본 자산: S&P 500)
+global_sims = calculate_homology(cohort_results, target_name=selected_crisis, asset="S&P 500")
+g_most_similar = max(global_sims, key=global_sims.get) if global_sims and len(global_sims) > 0 else None
+g_similarity_val = global_sims.get(g_most_similar, 0) if g_most_similar else 0.0
+g_is_significant = g_similarity_val >= 0.5
+
 # --- [Section 1] Global Macro Alert ---
 st.markdown("<div class='section-title'>📍 [Section 1] Global Macro Alert: 리스크 산출 근거</div>", unsafe_allow_html=True)
 risk_reason = f"""위험 지수 **{risk_score:.1f}점** 산출 근거: **최근 30일 S&P 500 MDD(-{abs(risk_data['mdd_val']):.1f}%)** 70% 가중치 + **USD 연환산 변동성({risk_data['vol_val']:.2f}%)** 30% 가중치 적용."""
 st.markdown(f"<div class='summary-box'>{risk_reason}</div>", unsafe_allow_html=True)
 
-m1, m2, m3 = st.columns(3)
-m1.metric("종합 리스크 점수", f"{risk_score:.1f}"); m2.metric("S&P 500 MDD 기여", f"{risk_data['mdd_part']:.1f}점"); m3.metric("USD 변동성 기여", f"{risk_data['vol_part']:.1f}점")
+m1, m2, m3, m4 = st.columns(4)
+m1.metric("종합 리스크 점수", f"{risk_score:.1f}")
+m2.metric("S&P 500 MDD 기여", f"{risk_data['mdd_part']:.1f}점")
+m3.metric("USD 변동성 기여", f"{risk_data['vol_part']:.1f}점")
+m4.metric("최대 유사 사례", g_most_similar if g_is_significant else "유사 사례 없음")
 
 st.write("#### 📉 위기별 낙폭률(Drawdown) 정밀 비교 (Y축 고정)")
 dd_asset = st.selectbox("분석 대상 자산군", ["S&P 500", "Gold", "Silver", "Dollar Index"], index=0)
@@ -100,7 +109,10 @@ with col_a1:
     st.plotly_chart(fig_track, use_container_width=True)
 with col_a2:
     st.markdown("#### 🔍 통계적 상동성 판정")
-    st.info(f"현재 국면 발 후의 **{track_asset}** 수익률 곡선은 과거 **[{most_similar}]** 위기와 **상관계수(Pearson R) {similarity_val:.2f}**를 기록하며 가장 높은 통계적 유사성을 보이고 있습니다.")
+    if similarity_val >= 0.5:
+        st.success(f"현재 국면 발 후의 **{track_asset}** 수익률 곡선은 과거 **[{most_similar}]** 위기와 **상관계수(Pearson R) {similarity_val:.2f}**를 기록하며 뚜렷한 동조화(Coupling)를 보이고 있습니다.")
+    else:
+        st.warning(f"현재 **{track_asset}**의 궤적은 과거 3대 위기(상관계수 0.5 미만)와 겹치지 않는 **전례 없는 독자적 경로(Unprecedented Path)**를 걷고 있습니다.")
 
 # --- [Section 3] Backtest ---
 st.markdown(f"<div class='section-title'>🧪 [Section 3] Backtest: 전략 모델 vs {dd_asset} 단순 보유</div>", unsafe_allow_html=True)
